@@ -5,8 +5,12 @@ A CLI tool to anonymize sensitive fields in JSON files while maintaining format 
 
 ## Installation
 
+It's recommended to use a virtual environment:
+
 ```bash
-pip install Faker
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
 ```
 
 ## Usage
@@ -44,5 +48,5 @@ cat data.json | python3 jsanon.py -a
 
 - **Format Preservation**: Non-sensitive characters (like dashes, dots, etc.) are preserved. Numbers are replaced by numbers, and letters by letters (maintaining case).
 - **Smart Inference**: Uses the `Faker` library to generate realistic replacements for common data types like emails, IP addresses, phone numbers, and URLs.
-- **Global Consistency**: If a sensitive value appears multiple times in the file (even in non-sensitive fields), it will be replaced with the same anonymized value everywhere to avoid data leakage.
+- **Global Consistency**: Any value identified as sensitive is replaced with the same anonymized value everywhere to avoid data leakage.
 - **Determinism**: Providing a seed ensures that the same input always produces the same anonymized output.
