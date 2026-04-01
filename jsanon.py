@@ -6,9 +6,10 @@ import random
 import string
 import hashlib
 from faker import Faker
+from urllib.parse import urlparse, urlunparse
 
 class JSONAnonymizer:
-    def __init__(self, key_patterns, auto=False, seed=None):
+    def __init__(self, key_patterns, auto=False, urls=False, seed=None):
         self.faker = Faker()
         self.seed = seed
         # We still set a global seed if provided to influence the hashes
@@ -19,6 +20,7 @@ class JSONAnonymizer:
 
         self.key_patterns = [re.compile(p) for p in key_patterns]
         self.auto = auto
+        self.urls = urls
         self.auto_field_patterns = [
             re.compile(r'I[Dd]$', re.IGNORECASE),
             re.compile(r'[Tt]oken$', re.IGNORECASE),
@@ -53,6 +55,17 @@ class JSONAnonymizer:
             for pattern in self.auto_field_patterns:
                 if pattern.search(field_name):
                     return True
+        return False
+
+    def _is_sensitive_url_part(self, part):
+        if len(part) <= 5:
+            return False
+
+        has_digit = any(c.isdigit() for c in part)
+
+        # Must have at least one digit
+        if has_digit:
+            return True
         return False
 
     def _preserve_format(self, value):
@@ -116,9 +129,54 @@ class JSONAnonymizer:
 
         # URLs
         if re.match(r'^https?://', value):
-            return self.faker.url()
+            return self._partial_anonymize_url(value)
 
         return self._preserve_format(value)
+
+    def _partial_anonymize_url(self, url):
+        parsed = urlparse(url)
+
+        # Netloc (hostname)
+        host_parts = parsed.netloc.split('.')
+        if len(host_parts) > 2:
+            new_host_parts = []
+            for part in host_parts[:-2]:
+                if self._is_sensitive_url_part(part):
+                    new_host_parts.append(self.anonymize_value(part))
+                else:
+                    new_host_parts.append(part)
+            new_host_parts.extend(host_parts[-2:])
+            new_netloc = ".".join(new_host_parts)
+        else:
+            new_netloc = parsed.netloc
+
+        # Path, Query, Fragment, Params
+        def replace_sensitive_parts(s):
+            if not s:
+                return s
+            # Split by non-alphanumeric and keep delimiters
+            segments = re.split(r'([^a-zA-Z0-9])', s)
+            new_segments = []
+            for segment in segments:
+                if self._is_sensitive_url_part(segment):
+                    new_segments.append(self.anonymize_value(segment))
+                else:
+                    new_segments.append(segment)
+            return "".join(new_segments)
+
+        new_path = replace_sensitive_parts(parsed.path)
+        new_query = replace_sensitive_parts(parsed.query)
+        new_fragment = replace_sensitive_parts(parsed.fragment)
+        new_params = replace_sensitive_parts(parsed.params)
+
+        return urlunparse((
+            parsed.scheme,
+            new_netloc,
+            new_path,
+            new_params,
+            new_query,
+            new_fragment
+        ))
 
     def anonymize_value(self, value):
         if value is None:
@@ -129,12 +187,18 @@ class JSONAnonymizer:
             return self.value_map[val_key]
 
         # SEEDING: Set seed for this specific value
+        # Save random state to avoid affecting other parts of the JSON
+        prev_random_state = random.getstate()
         val_seed = self._get_value_seed(value)
         random.seed(val_seed)
         self.faker.seed_instance(val_seed)
 
         anon_val = self._infer_and_generate(value)
         self.value_map[val_key] = anon_val
+
+        # Restore random state
+        random.setstate(prev_random_state)
+
         return anon_val
 
     def find_sensitive_values(self, d, sensitive=False):
@@ -148,6 +212,34 @@ class JSONAnonymizer:
             if sensitive:
                 self.sensitive_values.add((type(d).__name__, d))
 
+            # If it's a URL and --auto or --urls is enabled, extract parts
+            if isinstance(d, str) and (self.auto or self.urls) and re.match(r'^https?://', d):
+                self._extract_url_sensitive_parts(d)
+
+    def _extract_url_sensitive_parts(self, url):
+        parsed = urlparse(url)
+
+        # Netloc (hostname)
+        host_parts = parsed.netloc.split('.')
+        if len(host_parts) > 2:
+            for part in host_parts[:-2]:
+                if self._is_sensitive_url_part(part):
+                    self.sensitive_values.add(('str', part))
+
+        # Path, Query, Fragment, Params
+        def extract_from_string(s):
+            if not s:
+                return
+            segments = re.split(r'[^a-zA-Z0-9]', s)
+            for segment in segments:
+                if self._is_sensitive_url_part(segment):
+                    self.sensitive_values.add(('str', segment))
+
+        extract_from_string(parsed.path)
+        extract_from_string(parsed.query)
+        extract_from_string(parsed.fragment)
+        extract_from_string(parsed.params)
+
     def process(self, data, sensitive_context=False):
         if isinstance(data, dict):
             new_dict = {}
@@ -159,7 +251,14 @@ class JSONAnonymizer:
             return [self.process(item, sensitive_context) for item in data]
         else:
             val_key = (type(data).__name__, data)
-            if sensitive_context or val_key in self.value_map:
+
+            # Decide if this value should be anonymized
+            # It's sensitive if it's in a sensitive context OR if it's a URL and --urls/--auto is on
+            should_anonymize = sensitive_context or val_key in self.value_map
+            if not should_anonymize and isinstance(data, str) and (self.auto or self.urls) and re.match(r'^https?://', data):
+                should_anonymize = True
+
+            if should_anonymize:
                 return self.anonymize_value(data)
 
             if isinstance(data, str):
@@ -187,6 +286,8 @@ def main():
                         help="Regex patterns for sensitive field names")
     parser.add_argument("-a", "--auto", action="store_true",
                         help="Automatically infer sensitive fields using common patterns")
+    parser.add_argument("-u", "--urls", action="store_true",
+                        help="Anonymize sensitive parts in URLs")
     parser.add_argument("-s", "--seed", type=int, help="Seed for deterministic anonymization")
 
     args = parser.parse_args()
@@ -208,7 +309,7 @@ def main():
             print(f"Error: Invalid JSON from stdin: {e}", file=sys.stderr)
             sys.exit(1)
 
-    anonymizer = JSONAnonymizer(args.key_pattern, args.auto, args.seed)
+    anonymizer = JSONAnonymizer(args.key_pattern, args.auto, args.urls, args.seed)
     anonymizer.find_sensitive_values(data)
     anonymizer.populate_value_map_stably()
     anonymized_data = anonymizer.process(data)
