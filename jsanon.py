@@ -4,12 +4,14 @@ import sys
 import re
 import random
 import string
+import hashlib
 from faker import Faker
 
 class JSONAnonymizer:
     def __init__(self, sensitive_patterns, auto_infer=False, seed=None):
         self.faker = Faker()
         self.seed = seed
+        # We still set a global seed if provided to influence the hashes
         if seed is not None:
             Faker.seed(seed)
             random.seed(seed)
@@ -29,6 +31,19 @@ class JSONAnonymizer:
         ]
         self.value_map = {}
         self.sensitive_values = set()
+
+    def _get_value_seed(self, value):
+        """Generate a deterministic seed for a specific value, optionally influenced by a global seed."""
+        # Use SHA-256 for a stable hash across different runs and environments
+        hasher = hashlib.sha256()
+        # Include global seed in the hash if it exists
+        if self.seed is not None:
+            hasher.update(str(self.seed).encode('utf-8'))
+        # Include the value's type and string representation
+        hasher.update(type(value).__name__.encode('utf-8'))
+        hasher.update(str(value).encode('utf-8'))
+        # Return an integer from the hash
+        return int(hasher.hexdigest(), 16) % (2**32)
 
     def is_sensitive_field(self, field_name):
         for pattern in self.sensitive_patterns:
@@ -109,10 +124,14 @@ class JSONAnonymizer:
         if value is None:
             return None
 
-        # Use a key that includes the type to avoid collisions
         val_key = (type(value).__name__, value)
         if val_key in self.value_map:
             return self.value_map[val_key]
+
+        # SEEDING: Set seed for this specific value
+        val_seed = self._get_value_seed(value)
+        random.seed(val_seed)
+        self.faker.seed_instance(val_seed)
 
         anon_val = self._infer_and_generate(value)
         self.value_map[val_key] = anon_val
@@ -145,7 +164,6 @@ class JSONAnonymizer:
 
             if isinstance(data, str):
                 new_val = data
-                # Identify all string sensitive values that are contained in this string
                 sorted_sensitive = sorted([v[1] for v in self.value_map.keys() if v[0] == 'str'], key=len, reverse=True)
                 for s_val in sorted_sensitive:
                     if s_val in new_val:
@@ -191,14 +209,8 @@ def main():
             sys.exit(1)
 
     anonymizer = JSONAnonymizer(args.regex, args.auto_infer, args.seed)
-
-    # Pass 1: Identify all values in sensitive contexts
     anonymizer.find_sensitive_values(data)
-
-    # Pre-anonymize all sensitive values in a stable order
     anonymizer.populate_value_map_stably()
-
-    # Pass 2: Actually process and replace
     anonymized_data = anonymizer.process(data)
 
     print(json.dumps(anonymized_data, indent=2))
