@@ -8,7 +8,7 @@ import hashlib
 from faker import Faker
 
 class JSONAnonymizer:
-    def __init__(self, sensitive_patterns, auto_infer=False, seed=None):
+    def __init__(self, key_patterns, auto=False, seed=None):
         self.faker = Faker()
         self.seed = seed
         # We still set a global seed if provided to influence the hashes
@@ -17,8 +17,8 @@ class JSONAnonymizer:
             random.seed(seed)
             self.faker.seed_instance(seed)
 
-        self.sensitive_patterns = [re.compile(p) for p in sensitive_patterns]
-        self.auto_infer = auto_infer
+        self.key_patterns = [re.compile(p) for p in key_patterns]
+        self.auto = auto
         self.auto_field_patterns = [
             re.compile(r'I[Dd]$', re.IGNORECASE),
             re.compile(r'[Tt]oken$', re.IGNORECASE),
@@ -46,10 +46,10 @@ class JSONAnonymizer:
         return int(hasher.hexdigest(), 16) % (2**32)
 
     def is_sensitive_field(self, field_name):
-        for pattern in self.sensitive_patterns:
+        for pattern in self.key_patterns:
             if pattern.search(field_name):
                 return True
-        if self.auto_infer:
+        if self.auto:
             for pattern in self.auto_field_patterns:
                 if pattern.search(field_name):
                     return True
@@ -183,9 +183,9 @@ def main():
     parser = argparse.ArgumentParser(description="Anonymize sensitive fields in JSON data.")
     parser.add_argument("file", nargs="?", default=None,
                         help="JSON file to process (defaults to stdin)")
-    parser.add_argument("-r", "--regex", action="append", default=[],
+    parser.add_argument("-k", "--key-pattern", action="append", default=[],
                         help="Regex patterns for sensitive field names")
-    parser.add_argument("-a", "--auto-infer", action="store_true",
+    parser.add_argument("-a", "--auto", action="store_true",
                         help="Automatically infer sensitive fields using common patterns")
     parser.add_argument("-s", "--seed", type=int, help="Seed for deterministic anonymization")
 
@@ -208,7 +208,7 @@ def main():
             print(f"Error: Invalid JSON from stdin: {e}", file=sys.stderr)
             sys.exit(1)
 
-    anonymizer = JSONAnonymizer(args.regex, args.auto_infer, args.seed)
+    anonymizer = JSONAnonymizer(args.key_pattern, args.auto, args.seed)
     anonymizer.find_sensitive_values(data)
     anonymizer.populate_value_map_stably()
     anonymized_data = anonymizer.process(data)

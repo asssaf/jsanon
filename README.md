@@ -23,15 +23,15 @@ If `file` is not provided, it reads from `stdin`.
 
 ### Options
 
-- `-r, --regex`: Regex pattern(s) to match sensitive field names. Can be specified multiple times.
-- `-a, --auto-infer`: Automatically infer sensitive fields using common patterns (e.g., ID, Token, Password, Secret, Email, Address, Phone, Name).
+- `-k, --key-pattern`: Regex pattern(s) to match sensitive field names. Can be specified multiple times.
+- `-a, --auto`: Automatically infer sensitive fields using common patterns (e.g., ID, Token, Password, Secret, Email, Address, Phone, Name).
 - `-s, --seed`: Seed for deterministic anonymization.
 
 ### Examples
 
 Anonymize fields matching 'secret' or 'key':
 ```bash
-python3 jsanon.py data.json -r secret -r key
+python3 jsanon.py data.json -k secret -k key
 ```
 
 Anonymize using auto-inference and a specific seed:
@@ -48,5 +48,5 @@ cat data.json | python3 jsanon.py -a
 
 - **Format Preservation**: Non-sensitive characters (like dashes, dots, etc.) are preserved. Numbers are replaced by numbers, and letters by letters (maintaining case).
 - **Smart Inference**: Uses the `Faker` library to generate realistic replacements for common data types like emails, IP addresses, phone numbers, and URLs.
-- **Global Consistency**: Any value identified as sensitive is replaced with the same anonymized value everywhere to avoid data leakage.
+- **Global Consistency**: Any value identified as sensitive is replaced with the same anonymized value everywhere to avoid data leakage. Identical values will get the same replacement across different files if the same seed is used.
 - **Determinism**: Providing a seed ensures that the same input always produces the same anonymized output.
