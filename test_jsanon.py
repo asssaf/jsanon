@@ -173,5 +173,13 @@ class TestJSAnon(unittest.TestCase):
         self.assertNotIn("SECRET123", result["unrelated_field"])
         self.assertIn("https://image.pawsync.com/path/", result["unrelated_field"])
 
+    def test_url_no_digit_segment(self):
+        """Test that segments without digits are not anonymized."""
+        data = {"url": "https://example.com/deviceImage/v1/SECRET123"}
+        result = self.run_jsanon(data, ["-u"])
+
+        self.assertIn("/deviceImage/v1/", result["url"])
+        self.assertNotIn("SECRET123", result["url"])
+
 if __name__ == '__main__':
     unittest.main()

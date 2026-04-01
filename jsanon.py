@@ -62,10 +62,9 @@ class JSONAnonymizer:
             return False
 
         has_digit = any(c.isdigit() for c in part)
-        has_upper = any(c.isupper() for c in part)
-        has_lower = any(c.islower() for c in part)
 
-        if has_digit or (has_upper and has_lower):
+        # Must have at least one digit
+        if has_digit:
             return True
         return False
 
