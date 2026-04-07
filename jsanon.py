@@ -76,7 +76,7 @@ class JSONAnonymizer:
             new_val = ""
             for char in s_val:
                 if char.isdigit():
-                    new_val += str(random.randint(0, 9))
+                    new_val += str(random.randint(1, 9))
                 else:
                     new_val += char
             try:
@@ -94,7 +94,7 @@ class JSONAnonymizer:
                 elif char.islower():
                     new_val.append(random.choice(string.ascii_lowercase))
                 elif char.isdigit():
-                    new_val.append(random.choice(string.digits))
+                    new_val.append(random.choice("123456789"))
                 else:
                     new_val.append(char)
             return "".join(new_val)
